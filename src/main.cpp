@@ -17,11 +17,11 @@ const char *ssid = "";
 const char *password = "";
 
 // Actual name will be *.local
-const char myDNSName[] = "devlights";
+const char myDNSName[] = "lights";
 
-#define MAX_PIXEL_COUNT (480) // Do I have an off by one error somewhere here? (Ya, probably)
-#define COLORS          (3)   // RGB (3) or RGBW (4)
-#define BufferCount     (8)
+#define MAX_PIXEL_COUNT (800) // Do I have an off by one error somewhere here? (Ya, probably)
+#define COLORS          (4)   // RGB (3) or RGBW (4)
+#define BufferCount     (6)
 
 const int PixelPin = 2; // Pin # is decided by the chosen pixel output method
 
