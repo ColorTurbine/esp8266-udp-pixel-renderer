@@ -11,6 +11,7 @@ Notes
 #include <WiFiUdp.h>
 #include <ESP8266mDNS.h>
 #include <NeoPixelBus.h>
+#include <ArduinoOTA.h>
 
 // Wifi credentials
 const char *ssid = "";
@@ -82,12 +83,7 @@ uint32_t usToTicks(uint32_t us)
 #define LED (1)
 void setup()
 {
-	#if OSCDEBUG
     Serial.begin(115200);
-	#else
-	pinMode(LED_BUILTIN, OUTPUT);
-	digitalWrite(LED_BUILTIN, LOW);
-	#endif
     d();
 
     // Reset all the neopixels to an off state
@@ -110,15 +106,39 @@ void setup()
     d("WiFi connected");
 
     // Print the IP address
-    d(WiFi.localIP());
+    Serial.println(WiFi.localIP());
 
-    // Set up mDNS responder:
-    if (!mdns.begin(myDNSName, WiFi.localIP())) {
-        d("Error setting up MDNS responder!");
-    } else {
-        d("mDNS responder started");
-        df("My name is [%s]\r\n", myDNSName);
-    }
+    ArduinoOTA.setHostname(myDNSName);
+    ArduinoOTA.onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH)
+            type = "sketch";
+        else // U_SPIFFS
+            type = "filesystem";
+
+        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+        Serial.println("OTA: Start updating " + type);
+    });
+    ArduinoOTA.onEnd([]() {
+        Serial.println("\nOTA End");
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100)));
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("OTA Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR)
+            Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR)
+            Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR)
+            Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR)
+            Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR)
+            Serial.println("End Failed");
+    });
+    ArduinoOTA.begin();
 
     // Start the server listening for incoming client connections
     Udp.begin(7890);
@@ -281,7 +301,11 @@ void loop()
     while(packetSize == 0)
     {
         packetSize = Udp.parsePacket();
-        delay(1);
+        if(packetSize == 0)
+        {
+            ArduinoOTA.handle();
+            delay(1);
+        }
     }
 
     df("Received %d bytes\n", packetSize);
