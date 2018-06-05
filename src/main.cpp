@@ -25,7 +25,7 @@ const char myDNSName[] = "devlights";
 
 const int PixelPin = 2; // Pin # is decided by the chosen pixel output method
 
-#define OSCDEBUG 1
+#define OSCDEBUG 0
 
 #if OSCDEBUG == 1
 #define d(x) Serial.println(x)
@@ -266,7 +266,9 @@ void parsePacket(uint8_t *udp_packet_buffer, uint16_t len, uint16_t currentPixel
         // }
         interrupts();
         FrameState = FRAME_COMPLETE;
+#if OSCDEBUG
         TotalFrames++;
+#endif
     }
 }
 
