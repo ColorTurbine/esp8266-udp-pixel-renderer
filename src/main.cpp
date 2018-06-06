@@ -20,8 +20,8 @@ const char *password = "";
 // Actual name will be *.local
 const char myDNSName[] = "lights";
 
-#define MAX_PIXEL_COUNT (800) // Do I have an off by one error somewhere here? (Ya, probably)
-#define COLORS          (4)   // RGB (3) or RGBW (4)
+#define MAX_PIXEL_COUNT (800)
+#define COLORS          (4) // RGB (3) or RGBW (4)
 #define BufferCount     (6)
 
 const int PixelPin = 2; // Pin # is decided by the chosen pixel output method
@@ -62,13 +62,10 @@ RgbwColor Buffer[BufferCount][MAX_PIXEL_COUNT];
 RgbColor Buffer[BufferCount][MAX_PIXEL_COUNT];
 #endif
 
-volatile uint8_t FrontBuffer = 0;
-volatile uint8_t BufferedFrames = 0;
+uint8_t FrontBuffer = 0;
+uint8_t BufferedFrames = 0;
 uint8_t BackBuffer = 0;
-static void frame_timer_interrupt() ICACHE_RAM_ATTR;
-int timer_ticks = 0;
-int one_ms;
-volatile bool ready = false;
+
 WiFiClient client;
 WiFiUDP Udp;
 MDNSResponder mdns;
@@ -80,10 +77,28 @@ uint32_t usToTicks(uint32_t us)
     return (clockCyclesPerMicrosecond() * us);
 }
 
+#if 0
+bool loadSettings()
+{
+    SPIFFS.begin();
+    File f = SPIFFS.open("foo", "r");
+    if (!f)
+    {
+        return false;
+    }
+    // Read f
+}
+
+void saveSettings(char* hostname)
+{
+    // TODO
+}
+#endif
+
 #define LED (1)
 void setup()
 {
-    Serial.begin(115200);
+    Serial.begin(256000);
     d();
 
     // Reset all the neopixels to an off state
@@ -144,36 +159,25 @@ void setup()
     Udp.begin(7890);
     d("UDP server listening on port 7890");
 
-    // ESP.wdtDisable();
-
-    one_ms = usToTicks(1000);
-
-    // Setup 30FPS timer
-    noInterrupts();
-    timer0_isr_init();
-    timer0_attachInterrupt(frame_timer_interrupt);
-    timer_ticks = usToTicks(1000000 / 30); // FPS
-    timer0_write(ESP.getCycleCount() + timer_ticks);
-    interrupts();
 }
 
 #if OSCDEBUG
-unsigned long previousFrameTime;
 unsigned long TotalFrames = 0;
 #endif
-// TODO: Just set a flag here
-static void frame_timer_interrupt()
-{
-    // Set an interrupt for 1/30s from now
-    timer0_write(ESP.getCycleCount() + timer_ticks);
 
-    // No frame to show, come again soon
-    if (BufferedFrames == 0) {
+unsigned long previousFrameTime;
+uint8_t framecounter = 0;
+
+inline void paint()
+{
+    if (BufferedFrames == 0)
+    {
         return;
     }
 
-    // We're about to overlap the (active) back buffer
-    if (FrontBuffer == BackBuffer) {
+    unsigned long mic = micros();
+    if ((mic - previousFrameTime) < 36000 && BufferedFrames < 5)
+    {
         return;
     }
 
@@ -192,10 +196,10 @@ static void frame_timer_interrupt()
     }
 
 #if OSCDEBUG
-    // Show frame-frame time (probably shouldn't print print here)
-    df("BF: %d, us: %lu\r\n", BufferedFrames, micros() - previousFrameTime);
-    previousFrameTime = micros();
+    // Show frame-frame time
+    df("F%i U%lu\n", BufferedFrames, mic - previousFrameTime);
 #endif
+    previousFrameTime = mic;
 }
 
 typedef enum
@@ -215,6 +219,7 @@ typedef enum
 typedef enum
 {
     FORMAT_RAW = 0,
+    FORMAT_RLE = 1,
     FORMAT_INVALID = 0xFF
 } format_t;
 
@@ -222,90 +227,114 @@ frameState_t FrameState;
 uint16_t frame_pixelcount;
 
 #define HEADER_LEN (6)
-#define MAX_PACKET_LEN (MAX_PIXEL_COUNT * COLORS + HEADER_LEN + 100)
+#define MAX_PACKET_LEN (MAX_PIXEL_COUNT * COLORS + HEADER_LEN)
 
-void parsePacket(uint8_t *udp_packet_buffer, uint16_t len, uint16_t currentPixel)
+void parsePacket(uint8_t *udp_packet_buffer, uint16_t len, format_t format, uint16_t currentPixel)
 {
     uint16_t current_byte = HEADER_LEN;
 
     // Drop frames if we've overflowed
-    if (BufferedFrames >= BufferCount - 1)
-    { // (need 1 buffer for the front buffer)
+    if (BufferedFrames >= BufferCount)
+    {
         d("E: Overflow");
         FrameState = FRAME_COMPLETE;
         return;
     }
-
-    if(FrameState == FRAME_NEW)
-    {
-        // Advance back buffer
-        noInterrupts();
-        BackBuffer++;
-        if (BackBuffer >= BufferCount)
-        {
-            BackBuffer = 0;
-        }
-        interrupts();
-    }
     
     FrameState = FRAME_IN_PROGRESS;
 
-    // Pixel data
-    while (current_byte < len &&
-           currentPixel < frame_pixelcount &&
-           currentPixel < MAX_PIXEL_COUNT) {
-        uint8_t g = udp_packet_buffer[current_byte++];
-        uint8_t r = udp_packet_buffer[current_byte++];
-        uint8_t b = udp_packet_buffer[current_byte++];
+    switch (format)
+    {
+    case FORMAT_RAW:
+        // Pixel data
+        while (current_byte < len &&
+            currentPixel < frame_pixelcount &&
+            currentPixel < MAX_PIXEL_COUNT) {
+            uint8_t g = udp_packet_buffer[current_byte++];
+            uint8_t r = udp_packet_buffer[current_byte++];
+            uint8_t b = udp_packet_buffer[current_byte++];
+
+    #if COLORS == 4
+            uint8_t w = udp_packet_buffer[current_byte++];
+            Buffer[BackBuffer][currentPixel] = RgbwColor(r, g, b, w);
+    #else
+            Buffer[BackBuffer][currentPixel] = RgbColor(r, g, b);
+    #endif
+            currentPixel++;
+        }
+    break;
+    case FORMAT_RLE: // Untested
+        // RLE encoded pixel data
+        while (current_byte < len &&
+                currentPixel < frame_pixelcount &&
+                currentPixel < MAX_PIXEL_COUNT)
+        {
+            uint8_t count = udp_packet_buffer[current_byte++];
+
+            uint8_t g = udp_packet_buffer[current_byte++];
+            uint8_t r = udp_packet_buffer[current_byte++];
+            uint8_t b = udp_packet_buffer[current_byte++];
 
 #if COLORS == 4
-        uint8_t w = udp_packet_buffer[current_byte++];
-        Buffer[BackBuffer][currentPixel] = RgbwColor(r, g, b, w);
-#else
-        Buffer[BackBuffer][currentPixel] = RgbColor(r, g, b);
+            uint8_t w = udp_packet_buffer[current_byte++];
 #endif
-        currentPixel++;
+
+            while (count-- > 0 && current_byte < len && currentPixel < MAX_PIXEL_COUNT)
+            {
+#if COLORS == 4
+            Buffer[BackBuffer][currentPixel] = RgbwColor(r, g, b, w);
+#else
+            Buffer[BackBuffer][currentPixel] = RgbColor(r, g, b);
+#endif
+            currentPixel++;
+            }
+        }
+        break;
+
+    case FORMAT_INVALID:
+    default:
+        break;
     }
 
     if (currentPixel == frame_pixelcount ||
         currentPixel == MAX_PIXEL_COUNT)
     {
-        if(currentPixel == MAX_PIXEL_COUNT)
+        if (currentPixel == MAX_PIXEL_COUNT)
         {
             d("W: Truncating frame");
         }
         df("T: Frame complete @ %d", currentPixel);
 
-        noInterrupts();
         BufferedFrames++;
-        // Dynamically adjust frame timer
-        // if(BufferedFrames > (High + Low) * (3/4)) {
-        //     timer_ticks -= one_ms/100; // Overrun, play faster
-        // } else if(BufferedFrames < (High + Low) * (1/4)) {
-        //     timer_ticks += one_ms/100; // Running low, play slower
-        // }
-        interrupts();
         FrameState = FRAME_COMPLETE;
+
+        // Advance back buffer
+        BackBuffer++;
+        if (BackBuffer >= BufferCount)
+        {
+            BackBuffer = 0;
+        }
+
 #if OSCDEBUG
         TotalFrames++;
 #endif
     }
 }
 
+uint8_t burnLoop = 0;
+
 void loop()
 {
     static uint8_t udp_packet_buffer[MAX_PACKET_LEN];
     uint16_t currentPixel;
 
-    int packetSize = 0;
-    while(packetSize == 0)
+    paint();
+   
+    int packetSize = Udp.parsePacket();
+    if(packetSize == 0)
     {
-        packetSize = Udp.parsePacket();
-        if(packetSize == 0)
-        {
-            ArduinoOTA.handle();
-            delay(1);
-        }
+        ArduinoOTA.handle();
+        return;
     }
 
     df("Received %d bytes\n", packetSize);
@@ -313,21 +342,14 @@ void loop()
     int len = Udp.read(udp_packet_buffer, MAX_PACKET_LEN);
 
     // 0: command (0 - new frame, 1 - continuation)
-    // 1: format (0 - raw)
+    // 1: format (0 - raw, 1 - RLE)
     // 2-3: unused
     // 4-5: total pixels (for new frame), starting pixel (for existing frame)
-
 
     // Parse header
     command_t pktCommand = (command_t)udp_packet_buffer[0];
     format_t pktFormat = (format_t)udp_packet_buffer[1];
     // [2], [3]: unused
-
-    if (pktFormat != FORMAT_RAW)
-    {
-        d("E: Invalid packet format");
-        return;
-    }
 
     switch (pktCommand)
     {
@@ -341,7 +363,7 @@ void loop()
             frame_pixelcount = (uint16_t)udp_packet_buffer[4] << 8 | udp_packet_buffer[5];
 
             df("CMD_NEW_FRAME: %d\n", frame_pixelcount);
-            parsePacket(udp_packet_buffer, len, currentPixel);
+            parsePacket(udp_packet_buffer, len, pktFormat, currentPixel);
             break;
         case CMD_FRAME_IN_PROGRESS:
             if(FrameState != FRAME_IN_PROGRESS)
@@ -352,14 +374,14 @@ void loop()
             currentPixel = (uint16_t)udp_packet_buffer[4] << 8 | udp_packet_buffer[5];
 
             df("CMD_FRAME_IN_PROGRESS: %d\n", currentPixel);
-            parsePacket(udp_packet_buffer, len, currentPixel);
-        break;
+            parsePacket(udp_packet_buffer, len, pktFormat, currentPixel);
+            break;
         default:
             d("E: Unknown command");
             return;
     }
 
 #if OSCDEBUG
-    df("T: %lu, t: %d, f: %d, H: %d\n", TotalFrames, timer_ticks, BufferedFrames, ESP.getFreeHeap());
+    df("T: %lu, t: %d, H: %d\n", TotalFrames, BufferedFrames, ESP.getFreeHeap());
 #endif
 }
