@@ -62,6 +62,8 @@ RgbwColor Buffer[BufferCount][MAX_PIXEL_COUNT];
 RgbColor Buffer[BufferCount][MAX_PIXEL_COUNT];
 #endif
 
+uint16_t framelen[BufferCount];
+
 uint8_t FrontBuffer = 0;
 uint8_t BufferedFrames = 0;
 uint8_t BackBuffer = 0;
@@ -182,7 +184,8 @@ inline void paint()
     }
 
     // Display current frame (TODO: use memcpy)
-    for (int i = 0; i < MAX_PIXEL_COUNT; i++) {
+    for (int i = 0; i < framelen[FrontBuffer]; i++)
+    {
         strip.SetPixelColor(i, Buffer[FrontBuffer][i]);
     }
     strip.Show();
@@ -307,6 +310,7 @@ void parsePacket(uint8_t *udp_packet_buffer, uint16_t len, format_t format, uint
 
         BufferedFrames++;
         FrameState = FRAME_COMPLETE;
+        framelen[BackBuffer] = frame_pixelcount;
 
         // Advance back buffer
         BackBuffer++;
