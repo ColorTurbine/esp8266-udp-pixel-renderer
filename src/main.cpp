@@ -26,8 +26,6 @@ const char myDNSName[] = "lights";
 
 const int PixelPin = 2; // Pin # is decided by the chosen pixel output method
 
-#define OSCDEBUG 0
-
 #if OSCDEBUG == 1
 #define d(x) Serial.println(x)
 #define dn(x) Serial.print(x)
