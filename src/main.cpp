@@ -297,12 +297,16 @@ void parsePacket(uint8_t *udp_packet_buffer, uint16_t len, format_t format, uint
         break;
     }
 
-    if (currentPixel == frame_pixelcount ||
+    if (currentPixel >= frame_pixelcount ||
         currentPixel == MAX_PIXEL_COUNT)
     {
         if (currentPixel == MAX_PIXEL_COUNT)
         {
             d("W: Truncating frame");
+        }
+        if (currentPixel > frame_pixelcount)
+        {
+            d("W: Too many pixels");
         }
         df("T: Frame complete @ %d", currentPixel);
 
