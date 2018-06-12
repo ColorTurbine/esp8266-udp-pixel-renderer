@@ -233,6 +233,7 @@ uint16_t frame_pixelcount;
 void parsePacket(uint8_t *udp_packet_buffer, uint16_t len, format_t format, uint16_t currentPixel)
 {
     uint16_t current_byte = HEADER_LEN;
+    uint8_t bpp = 0;
 
     // Drop frames if we've overflowed
     if (BufferedFrames >= BufferCount)
@@ -266,22 +267,26 @@ void parsePacket(uint8_t *udp_packet_buffer, uint16_t len, format_t format, uint
     break;
     case FORMAT_RLE: // Untested
         // RLE encoded pixel data
+        bpp = udp_packet_buffer[current_byte++];
         while (current_byte < len &&
                 currentPixel < frame_pixelcount &&
                 currentPixel < MAX_PIXEL_COUNT)
         {
             uint8_t count = udp_packet_buffer[current_byte++];
 
+            // TODO: Cleanup (this will go away with issue #7)
             uint8_t g = udp_packet_buffer[current_byte++];
             uint8_t r = udp_packet_buffer[current_byte++];
             uint8_t b = udp_packet_buffer[current_byte++];
-
-#if COLORS == 4
-            uint8_t w = udp_packet_buffer[current_byte++];
-#endif
-
-            while (count-- > 0 && current_byte < len && currentPixel < MAX_PIXEL_COUNT)
+            uint8_t w = 0;
+            if (bpp == 4)
             {
+                w = udp_packet_buffer[current_byte++];
+            }
+
+            while (count > 0 && currentPixel < MAX_PIXEL_COUNT)
+            {
+                count--;
 #if COLORS == 4
             Buffer[BackBuffer][currentPixel] = RgbwColor(r, g, b, w);
 #else
