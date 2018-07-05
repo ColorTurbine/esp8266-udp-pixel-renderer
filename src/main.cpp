@@ -165,7 +165,7 @@ void setup()
 unsigned long TotalFrames = 0;
 #endif
 
-unsigned long previousFrameTime;
+unsigned long previousFrameTime = 0;
 uint8_t framecounter = 0;
 
 inline void paint()
@@ -214,6 +214,7 @@ typedef enum
 {
     CMD_NEW_FRAME = 0,
     CMD_FRAME_IN_PROGRESS = 1,
+    CMD_DROP_BUFFER = 2,
     CMD_INVALID = 0xFF
 } command_t;
 
@@ -373,8 +374,8 @@ void loop()
             currentPixel = 0;
             frame_pixelcount = (uint16_t)udp_packet_buffer[4] << 8 | udp_packet_buffer[5];
 
-            df("CMD_NEW_FRAME: %d\n", frame_pixelcount);
             parsePacket(udp_packet_buffer, len, pktFormat, currentPixel);
+            df("CMD_NEW_FRAME: %d\n", frame_pixelcount);
             break;
         case CMD_FRAME_IN_PROGRESS:
             if(FrameState != FRAME_IN_PROGRESS)
@@ -384,8 +385,16 @@ void loop()
             }
             currentPixel = (uint16_t)udp_packet_buffer[4] << 8 | udp_packet_buffer[5];
 
-            df("CMD_FRAME_IN_PROGRESS: %d\n", currentPixel);
             parsePacket(udp_packet_buffer, len, pktFormat, currentPixel);
+            df("CMD_FRAME_IN_PROGRESS: %d\n", currentPixel);
+            break;
+        case CMD_DROP_BUFFER:
+            FrameState = FRAME_COMPLETE;
+            FrontBuffer = 0;
+            BufferedFrames = 0;
+            BackBuffer = 0;
+            previousFrameTime = 0; // Display next frame immediately
+            df("CMD_DROP_BUFFER\n");
             break;
         default:
             d("E: Unknown command");
