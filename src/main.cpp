@@ -11,7 +11,7 @@ Notes
 #include <WiFiUdp.h>
 #include <ESP8266mDNS.h>
 #include <NeoPixelBus.h>
-#include <ArduinoOTA.h>
+// #include <ArduinoOTA.h>
 
 // Wifi credentials
 const char *ssid = "";
@@ -20,39 +20,29 @@ const char *password = "";
 // Actual name will be *.local
 const char myDNSName[] = "lights";
 
-#define MAX_PIXEL_COUNT (800)
+#define MAX_PIXEL_COUNT (120)
 #define COLORS          (4) // RGB (3) or RGBW (4)
-#define BufferCount     (6)
+#define BufferCount     (3)
+#define OSCDEBUG        (0)
 
 const int PixelPin = 2; // Pin # is decided by the chosen pixel output method
 
 #if OSCDEBUG == 1
-#define d(x) Serial.println(x)
-#define dn(x) Serial.print(x)
-#define df(x, ...) Serial.printf(x, __VA_ARGS__)
+#define d(x) do {Serial.println(x);} while (0)
+#define dn(x) do {Serial.print(x);} while (0)
+#define df(x, ...) do {Serial.printf(x, __VA_ARGS__);} while (0)
 #else
 #define d(x) {}
 #define dn(x) {}
 #define df(x, ...) {}
 #endif
 
-// You can also use one of these for Esp8266, each having their own restrictions
-//
-// NOTE: These will ignore the PIN and use GPI03 pin
-//NeoPixelBus<NeoGrbFeature, NeoEsp8266Dma800KbpsMethod> strip(MAX_PIXEL_COUNT, PixelPin);
-//NeoPixelBus<NeoRgbFeature, NeoEsp8266Dma400KbpsMethod> strip(MAX_PIXEL_COUNT, PixelPin);
-
-// Uart method is good for the Esp-01 or other pin restricted modules
 // NOTE: These will ignore the PIN and use GPI02 pin
-
 #if COLORS == 4
-NeoPixelBus<NeoRgbwFeature, NeoEsp8266Uart800KbpsMethod> strip(MAX_PIXEL_COUNT, PixelPin);
+NeoPixelBus<NeoRgbwFeature, NeoEsp8266Uart1800KbpsMethod> strip(MAX_PIXEL_COUNT, PixelPin);
 #else
-NeoPixelBus<NeoRgbFeature, NeoEsp8266Uart800KbpsMethod> strip(MAX_PIXEL_COUNT, PixelPin);
+NeoPixelBus<NeoRgbFeature, NeoEsp8266Uart1800KbpsMethod> strip(MAX_PIXEL_COUNT, PixelPin);
 #endif
-
-// four element pixels, RGBW
-//NeoPixelBus<NeoRgbwFeature, Neo800KbpsMethod> strip(MAX_PIXEL_COUNT, PixelPin);
 
 #if COLORS == 4
 RgbwColor Buffer[BufferCount][MAX_PIXEL_COUNT];
@@ -123,37 +113,37 @@ void setup()
     // Print the IP address
     Serial.println(WiFi.localIP());
 
-    ArduinoOTA.setHostname(myDNSName);
-    ArduinoOTA.onStart([]() {
-        String type;
-        if (ArduinoOTA.getCommand() == U_FLASH)
-            type = "sketch";
-        else // U_SPIFFS
-            type = "filesystem";
+    // ArduinoOTA.setHostname(myDNSName);
+    // ArduinoOTA.onStart([]() {
+    //     String type;
+    //     if (ArduinoOTA.getCommand() == U_FLASH)
+    //         type = "sketch";
+    //     else // U_SPIFFS
+    //         type = "filesystem";
 
-        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-        Serial.println("OTA: Start updating " + type);
-    });
-    ArduinoOTA.onEnd([]() {
-        Serial.println("\nOTA End");
-    });
-    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-        Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100)));
-    });
-    ArduinoOTA.onError([](ota_error_t error) {
-        Serial.printf("OTA Error[%u]: ", error);
-        if (error == OTA_AUTH_ERROR)
-            Serial.println("Auth Failed");
-        else if (error == OTA_BEGIN_ERROR)
-            Serial.println("Begin Failed");
-        else if (error == OTA_CONNECT_ERROR)
-            Serial.println("Connect Failed");
-        else if (error == OTA_RECEIVE_ERROR)
-            Serial.println("Receive Failed");
-        else if (error == OTA_END_ERROR)
-            Serial.println("End Failed");
-    });
-    ArduinoOTA.begin();
+    //     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+    //     Serial.println("OTA: Start updating " + type);
+    // });
+    // ArduinoOTA.onEnd([]() {
+    //     Serial.println("\nOTA End");
+    // });
+    // ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    //     Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100)));
+    // });
+    // ArduinoOTA.onError([](ota_error_t error) {
+    //     Serial.printf("OTA Error[%u]: ", error);
+    //     if (error == OTA_AUTH_ERROR)
+    //         Serial.println("Auth Failed");
+    //     else if (error == OTA_BEGIN_ERROR)
+    //         Serial.println("Begin Failed");
+    //     else if (error == OTA_CONNECT_ERROR)
+    //         Serial.println("Connect Failed");
+    //     else if (error == OTA_RECEIVE_ERROR)
+    //         Serial.println("Receive Failed");
+    //     else if (error == OTA_END_ERROR)
+    //         Serial.println("End Failed");
+    // });
+    // ArduinoOTA.begin();
 
     // Start the server listening for incoming client connections
     Udp.begin(7890);
@@ -243,7 +233,7 @@ void parsePacket(uint8_t *udp_packet_buffer, uint16_t len, format_t format, uint
         FrameState = FRAME_COMPLETE;
         return;
     }
-    
+
     FrameState = FRAME_IN_PROGRESS;
 
     switch (format)
@@ -341,11 +331,11 @@ void loop()
     uint16_t currentPixel;
 
     paint();
-   
+
     int packetSize = Udp.parsePacket();
     if(packetSize == 0)
     {
-        ArduinoOTA.handle();
+        // ArduinoOTA.handle();
         return;
     }
 
@@ -394,7 +384,7 @@ void loop()
             BufferedFrames = 0;
             BackBuffer = 0;
             previousFrameTime = 0; // Display next frame immediately
-            df("CMD_DROP_BUFFER\n");
+            d("CMD_DROP_BUFFER\n");
             break;
         default:
             d("E: Unknown command");
